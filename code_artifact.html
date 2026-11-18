@@ -1,0 +1,1943 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>班級掃地自動輪替與登記系統</title>
+  <!-- 載入 Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- 載入 Google Fonts (Inter + 思源黑體) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet" />
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'Noto Sans TC', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    /* 基礎字體與平滑捲動設定 */
+    body {
+      font-family: 'Inter', 'Noto Sans TC', sans-serif;
+      background-color: #f8fafc;
+      color: #1e293b;
+    }
+
+    /* 自訂核取方塊樣式，提升手機觸控與視覺清晰度 */
+    .duty-checkbox {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 1.5rem;
+      height: 1.5rem;
+      border: 2px solid #cbd5e1;
+      border-radius: 0.45rem;
+      background-color: #ffffff;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease-in-out;
+    }
+
+    .duty-checkbox:hover {
+      border-color: #3b82f6;
+      background-color: #eff6ff;
+    }
+
+    .duty-checkbox:checked {
+      background-color: #10b981;
+      border-color: #10b981;
+    }
+
+    .duty-checkbox:checked::after {
+      content: '';
+      width: 0.4rem;
+      height: 0.75rem;
+      border: solid white;
+      border-width: 0 2.5px 2.5px 0;
+      transform: rotate(45deg) translate(-1px, -1px);
+    }
+
+    /* 互換模式下的脈衝外框動畫 */
+    @keyframes pulseBorder {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.45); }
+      50% { box-shadow: 0 0 0 6px rgba(59, 130, 246, 0); }
+    }
+    .swap-candidate {
+      animation: pulseBorder 1.8s infinite;
+    }
+
+    /* 列印專用樣式 (@media print)：隱藏操作介面，輸出乾淨的教室公告簽到表 */
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 12mm;
+      }
+      body {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        font-size: 11pt;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .print-only {
+        display: block !important;
+      }
+      .print-container {
+        max-width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        box-shadow: none !important;
+        border: none !important;
+      }
+      table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+      }
+      th, td {
+        border: 1px solid #475569 !important;
+        padding: 6px 8px !important;
+        color: #000000 !important;
+      }
+      .duty-checkbox {
+        border: 1.5px solid #334155 !important;
+        width: 1.15rem !important;
+        height: 1.15rem !important;
+        border-radius: 2px !important;
+      }
+      .duty-checkbox:checked {
+        background-color: #ffffff !important;
+      }
+      .duty-checkbox:checked::after {
+        border-color: #000000 !important;
+      }
+      .note-input {
+        border: none !important;
+        background: transparent !important;
+        padding: 0 !important;
+      }
+      .note-input::placeholder {
+        color: transparent !important;
+      }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- ==================== 頂部導覽列 ==================== -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 no-print shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-3">
+      <!-- 左側：系統標題與班級名稱 -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-sm shrink-0">
+          <!-- 掃把/清潔圖示 SVG -->
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <h1 class="text-lg sm:text-xl font-bold text-slate-800 tracking-tight">班級掃地自動輪替與登記系統</h1>
+            <button onclick="openClassNameModal()" title="點擊修改班級名稱" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition">
+              <span id="headerClassName">高二忠班</span>
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+            </button>
+          </div>
+          <div class="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
+            <span>全班 36 人・每週 18 人輪值</span>
+            <span>•</span>
+            <span id="dataSourceBadge" class="inline-flex items-center gap-1 font-medium text-emerald-600">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              本機自動暫存中
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右側：主要功能按鈕群 -->
+      <div class="flex items-center gap-2 flex-wrap">
+        <button onclick="openRosterModal()" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
+          <svg class="w-4 h-4 text-slate-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+          <span>名單與分組 (36人)</span>
+        </button>
+
+        <button onclick="scrollToSyncSection()" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" /></svg>
+          <span>GitHub 同步 / 分享</span>
+        </button>
+
+        <button onclick="window.print()" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium bg-slate-800 text-white hover:bg-slate-700 transition shadow-sm">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+          <span>列印公告版</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ==================== 分享連結檢視提醒橫幅 (預設隱藏) ==================== -->
+  <div id="sharedLinkBanner" class="hidden bg-amber-50 border-b border-amber-200 px-4 py-3 no-print">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2 text-amber-900 text-sm font-medium">
+        <span class="text-lg">🔗</span>
+        <span>您目前正在檢視透過「狀態分享連結」開啟的排班與登記紀錄。</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="applySharedStateToLocal()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 text-white hover:bg-amber-700 transition">
+          覆蓋並儲存至本機
+        </button>
+        <button onclick="dismissSharedState()" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-white text-amber-800 border border-amber-300 hover:bg-amber-100 transition">
+          放棄並載入本機資料
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 主要內容區 ==================== -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 print-container">
+
+    <!-- 儀表板控制卡片區 (列印時隱藏) -->
+    <section class="grid grid-cols-1 lg:grid-cols-3 gap-4 no-print">
+      
+      <!-- 卡片 1：週次與開學日期設定 -->
+      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">學期與週次導覽</span>
+            <button onclick="jumpToCurrentWeek()" class="text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 px-2.5 py-1 rounded-lg transition">
+              回到本週
+            </button>
+          </div>
+
+          <!-- 週次切換器 -->
+          <div class="flex items-center justify-between gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
+            <button onclick="changeWeek(-1)" id="prevWeekBtn" class="p-2 rounded-lg hover:bg-white hover:shadow-sm text-slate-600 disabled:opacity-40 transition" title="上一週">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
+            </button>
+            <div class="flex-1 text-center">
+              <select id="weekSelector" onchange="selectWeek(this.value)" class="w-full text-center font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer text-base">
+                <!-- 由 JS 動態產生第 1 週 ~ 第 22 週 -->
+              </select>
+              <div id="weekDateRangeText" class="text-xs text-slate-500 mt-0.5">計算日期中...</div>
+            </div>
+            <button onclick="changeWeek(1)" id="nextWeekBtn" class="p-2 rounded-lg hover:bg-white hover:shadow-sm text-slate-600 disabled:opacity-40 transition" title="下一週">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- 開學第一週週一日期設定 -->
+        <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+          <label for="semesterStartInput" class="text-xs font-medium text-slate-600 whitespace-nowrap">開學第1週週一：</label>
+          <input type="date" id="semesterStartInput" onchange="updateSemesterStart(this.value)" class="text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500" />
+        </div>
+      </div>
+
+      <!-- 卡片 2：本週輪值組別與工作調整 -->
+      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">本週值勤組別</span>
+            <span id="groupModeBadge" class="text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full">模式 A：1–18 / 19–36</span>
+          </div>
+
+          <div class="flex items-baseline gap-2.5 mt-1">
+            <h2 id="activeGroupTitle" class="text-2xl font-bold text-slate-800">第一組 (18人)</h2>
+            <span id="rotationStatusBadge" class="text-xs font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+              自動公平輪替
+            </span>
+          </div>
+          <p class="text-xs text-slate-500 mt-1.5">
+            打掃4・拖地4・黑板平台2・倒垃圾2・回收4・值日生2
+          </p>
+        </div>
+
+        <!-- 排班微調按鈕 -->
+        <div class="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center gap-2">
+          <button onclick="confirmShuffleWeek()" class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 transition">
+            <span>🔀 隨機抽籤重排</span>
+          </button>
+          <button onclick="toggleSwapMode()" id="swapModeBtn" class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition">
+            <span>🔄 互換兩人工作</span>
+          </button>
+          <button onclick="resetWeekToAuto()" id="resetAutoBtn" class="hidden w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition">
+            <span>↩️ 恢復系統自動輪替順序</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 卡片 3：掃地完成率與衛生股長快捷驗收 -->
+      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">本週驗收進度</span>
+            <span id="weeklyProgressText" class="text-sm font-bold text-emerald-600">0% (0/90)</span>
+          </div>
+
+          <!-- 進度條 -->
+          <div class="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+            <div id="weeklyProgressBar" class="h-full bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+          </div>
+
+          <!-- 今日未完成提醒 -->
+          <div class="mt-3 bg-slate-50 rounded-xl p-2.5 border border-slate-100">
+            <div class="flex items-center justify-between text-xs mb-1">
+              <span class="font-semibold text-slate-700" id="activeDayLabel">今日 (週一) 尚未勾選：</span>
+              <span class="font-bold text-rose-600" id="uncheckedCountBadge">18 人</span>
+            </div>
+            <p id="uncheckedNamesList" class="text-xs text-slate-500 line-clamp-2 leading-relaxed">
+              載入中...
+            </p>
+          </div>
+        </div>
+
+        <!-- 一鍵全組勾選控制 -->
+        <div class="mt-3 pt-2.5 border-t border-slate-100 flex items-center gap-2">
+          <select id="quickCheckDaySelect" onchange="updateUncheckedReminder()" class="text-xs font-semibold bg-slate-100 text-slate-700 rounded-xl px-2.5 py-2 border border-slate-200 focus:outline-none">
+            <option value="0">週一</option>
+            <option value="1">週二</option>
+            <option value="2">週三</option>
+            <option value="3">週四</option>
+            <option value="4">週五</option>
+          </select>
+          <button onclick="checkAllForSelectedDay()" class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-sm">
+            <span>✅ 一鍵全組完成打勾</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 互換模式操作提示條 (預設隱藏) -->
+    <div id="swapModeBanner" class="hidden bg-blue-600 text-white rounded-2xl px-4 py-3 shadow-md flex flex-wrap items-center justify-between gap-2 no-print">
+      <div class="flex items-center gap-2 text-sm font-medium">
+        <span class="text-lg">🔄</span>
+        <span id="swapInstructionText">互換模式已開啟：請點選表格中「第一位」要交換工作的同學。</span>
+      </div>
+      <button onclick="toggleSwapMode(false)" class="px-3 py-1 rounded-lg text-xs font-semibold bg-white/20 hover:bg-white/30 transition">
+        取消互換
+      </button>
+    </div>
+
+    <!-- ==================== 列印專用標題區 (平時隱藏，列印時顯示) ==================== -->
+    <div class="hidden print-only mb-4">
+      <div class="flex items-end justify-between border-b-2 border-slate-800 pb-2">
+        <div>
+          <h1 id="printTitle" class="text-xl font-bold">高二忠班 第 12 週掃地工作分配與檢核表</h1>
+          <p id="printSubtitle" class="text-sm mt-1">值勤組別：第一組（共 18 人）｜ 日期區間：2026/11/16 ～ 2026/11/20</p>
+        </div>
+        <div class="text-xs text-right">
+          <p>請每日打掃完畢後由衛生股長檢核打勾</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== 互動式掃地自動登記表 ==================== -->
+    <section class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 no-print">
+        <div class="flex items-center gap-2">
+          <h3 class="font-bold text-slate-800 text-base">每週掃地工作分配與簽到登記表</h3>
+          <span class="text-xs font-medium px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">點擊方塊即時儲存</span>
+        </div>
+        <div class="flex items-center gap-2 text-xs text-slate-500">
+          <span>💡 手機版可左右滑動表格勾選週一至週五</span>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-600 uppercase tracking-wider">
+              <th class="py-3.5 px-4 w-40">工作項目</th>
+              <th class="py-3.5 px-4 w-44 sticky left-0 bg-slate-50 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">座號 / 姓名</th>
+              <th class="py-3.5 px-2 text-center w-16" id="th-day-0">週一</th>
+              <th class="py-3.5 px-2 text-center w-16" id="th-day-1">週二</th>
+              <th class="py-3.5 px-2 text-center w-16" id="th-day-2">週三</th>
+              <th class="py-3.5 px-2 text-center w-16" id="th-day-3">週四</th>
+              <th class="py-3.5 px-2 text-center w-16" id="th-day-4">週五</th>
+              <th class="py-3.5 px-4 min-w-[180px]">備註 / 代打紀錄</th>
+            </tr>
+          </thead>
+          <tbody id="cleaningTableBody" class="divide-y divide-slate-100 text-sm">
+            <!-- 由 JavaScript 動態渲染 18 位同學與 6 項工作 -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 列印專用底部簽名欄 -->
+    <div class="hidden print-only mt-6 pt-3 flex justify-between text-sm font-medium">
+      <div>衛生股長簽名：________________________</div>
+      <div>導師核章：________________________</div>
+    </div>
+
+    <!-- ==================== GitHub 同步、分享與匯出中心 (列印時隱藏) ==================== -->
+    <section id="syncSection" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6 space-y-5 no-print">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-4">
+        <div>
+          <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+            <span>☁️ GitHub 部署同步與班群分享中心</span>
+          </h3>
+          <p class="text-xs text-slate-500 mt-1">
+            免後端伺服器設計：支援一鍵產生班群分享連結、匯出 <code class="bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">data.json</code> 上傳至 GitHub Pages，或直接透過 GitHub API 推送更新。
+          </p>
+        </div>
+        <button onclick="reloadFromDataJson()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
+          <span>🔄 重新讀取遠端 data.json</span>
+        </button>
+      </div>
+
+      <!-- 快捷分享與匯出按鈕網格 -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <!-- 1. 產生狀態分享連結 -->
+        <button onclick="copyShareLink()" class="flex items-start gap-3 p-3.5 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100/80 text-left transition group">
+          <div class="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0 mt-0.5 group-hover:scale-105 transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+          </div>
+          <div>
+            <div class="text-sm font-bold text-blue-900">複製狀態分享連結</div>
+            <div class="text-xs text-blue-700/80 mt-0.5">壓縮本週排班與勾選進度，貼到 LINE 班群即可檢視</div>
+          </div>
+        </button>
+
+        <!-- 2. 下載 data.json -->
+        <button onclick="downloadDataJson()" class="flex items-start gap-3 p-3.5 rounded-xl border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100/80 text-left transition group">
+          <div class="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 mt-0.5 group-hover:scale-105 transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+          </div>
+          <div>
+            <div class="text-sm font-bold text-emerald-900">下載 data.json</div>
+            <div class="text-xs text-emerald-700/80 mt-0.5">上傳至 GitHub Repo 根目錄，全班開啟網頁自動同步</div>
+          </div>
+        </button>
+
+        <!-- 3. 匯出本週 CSV 報表 -->
+        <button onclick="exportWeeklyCsv()" class="flex items-start gap-3 p-3.5 rounded-xl border border-amber-200 bg-amber-50/70 hover:bg-amber-100/80 text-left transition group">
+          <div class="w-9 h-9 rounded-lg bg-amber-600 text-white flex items-center justify-center shrink-0 mt-0.5 group-hover:scale-105 transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+          </div>
+          <div>
+            <div class="text-sm font-bold text-amber-900">匯出本週 CSV 報表</div>
+            <div class="text-xs text-amber-700/80 mt-0.5">產生 Excel 相容格式，方便學期末統計缺曠與嘉獎</div>
+          </div>
+        </button>
+
+        <!-- 4. 匯入本地 JSON 備份 -->
+        <label class="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-left transition cursor-pointer group">
+          <div class="w-9 h-9 rounded-lg bg-slate-700 text-white flex items-center justify-center shrink-0 mt-0.5 group-hover:scale-105 transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+          </div>
+          <div>
+            <div class="text-sm font-bold text-slate-800">還原 / 匯入 JSON</div>
+            <div class="text-xs text-slate-500 mt-0.5">選擇先前備份的 <code class="text-slate-700">data.json</code> 檔案載入紀錄</div>
+          </div>
+          <input type="file" accept=".json,application/json" onchange="importDataJsonFile(event)" class="hidden" />
+        </label>
+      </div>
+
+      <!-- 折疊式 GitHub API 直接推送設定面板 -->
+      <div class="border border-slate-200 rounded-xl overflow-hidden">
+        <button onclick="toggleGithubApiPanel()" class="w-full px-4 py-3 bg-slate-50 hover:bg-slate-100 flex items-center justify-between text-left transition">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-bold text-slate-700">⚙️ GitHub 雲端同步設定（選配：透過 GitHub REST API 直接推送更新）</span>
+          </div>
+          <svg id="ghPanelChevron" class="w-5 h-5 text-slate-500 transform transition-transform duration-200" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+        </button>
+
+        <div id="githubApiPanel" class="hidden p-4 bg-white border-t border-slate-200 space-y-4">
+          <div class="bg-blue-50/70 border border-blue-100 rounded-xl p-3 text-xs text-blue-800 leading-relaxed">
+            <strong>使用說明：</strong>若您已將此網頁部署於 GitHub Pages，可在此填入倉庫名稱與 Personal Access Token (需具備 <code class="bg-white px-1 rounded">Contents: Read & Write</code> 權限)。點選推送後，系統會自動透過 GitHub API 更新 repo 內的 <code class="bg-white px-1 rounded">data.json</code>。<br/>
+            <span class="text-blue-600 font-semibold">🔒 安全性保護：您的 Token 僅儲存於目前瀏覽器的 LocalStorage，絕不會寫入 data.json 或任何分享連結中。</span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">GitHub 倉庫 (owner/repo)</label>
+              <input type="text" id="ghRepoInput" placeholder="例如：wang123/class-cleaning" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2 focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">分支名稱 (Branch)</label>
+              <input type="text" id="ghBranchInput" value="main" placeholder="main" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2 focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">資料檔案路徑</label>
+              <input type="text" id="ghPathInput" value="data.json" placeholder="data.json" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2 focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">GitHub Personal Access Token</label>
+              <input type="password" id="ghTokenInput" placeholder="ghp_xxxxxxxxxxxx" class="w-full text-sm border border-slate-300 rounded-xl px-3 py-2 focus:outline-none focus:border-blue-500" />
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-3 pt-2">
+            <button onclick="saveGithubConfigOnly()" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
+              僅儲存設定於本機
+            </button>
+            <div class="flex items-center gap-2">
+              <button onclick="pushToGithubApi()" id="ghPushBtn" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 transition shadow-sm">
+                <span>🚀 儲存並推送至 GitHub</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ==================== 頁尾 ==================== -->
+  <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400 no-print mt-8">
+    <p>班級掃地自動輪替與登記系統・純前端靜態架構，支援 GitHub Pages 免費託管</p>
+  </footer>
+
+  <!-- ==================== 彈窗 1：名單與分組管理 (36人) ==================== -->
+  <div id="rosterModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden items-center justify-center p-4 no-print">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+      <!-- 彈窗標題 -->
+      <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+        <div>
+          <h3 class="text-lg font-bold text-slate-800">班級名單與分組模式設定（共 36 人）</h3>
+          <p class="text-xs text-slate-500 mt-0.5">每週由其中一組（18 人）負責全班掃地工作</p>
+        </div>
+        <button onclick="closeRosterModal()" class="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 transition">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+
+      <!-- 彈窗內容捲動區 -->
+      <div class="p-6 overflow-y-auto space-y-6 flex-1">
+        <!-- 分組模式選擇 -->
+        <div class="space-y-2.5">
+          <label class="block text-sm font-bold text-slate-700">1. 選擇分組輪替模式</label>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <label class="flex items-start gap-2.5 p-3.5 rounded-xl border cursor-pointer transition hover:bg-slate-50" id="modeCardA">
+              <input type="radio" name="groupModeRadio" value="A" onchange="handleGroupModePreview('A')" class="mt-1 text-blue-600" />
+              <div>
+                <div class="text-sm font-bold text-slate-800">模式 A（預設前後半段）</div>
+                <div class="text-xs text-slate-500 mt-0.5">第一組：1–18 號（單數週）<br/>第二組：19–36 號（雙數週）</div>
+              </div>
+            </label>
+
+            <label class="flex items-start gap-2.5 p-3.5 rounded-xl border cursor-pointer transition hover:bg-slate-50" id="modeCardB">
+              <input type="radio" name="groupModeRadio" value="B" onchange="handleGroupModePreview('B')" class="mt-1 text-blue-600" />
+              <div>
+                <div class="text-sm font-bold text-slate-800">模式 B（單雙座號分組）</div>
+                <div class="text-xs text-slate-500 mt-0.5">第一組：單數座號（18人）<br/>第二組：雙數座號（18人）</div>
+              </div>
+            </label>
+
+            <label class="flex items-start gap-2.5 p-3.5 rounded-xl border cursor-pointer transition hover:bg-slate-50" id="modeCardC">
+              <input type="radio" name="groupModeRadio" value="C" onchange="handleGroupModePreview('C')" class="mt-1 text-blue-600" />
+              <div>
+                <div class="text-sm font-bold text-slate-800">模式 C（自訂組別成員）</div>
+                <div class="text-xs text-slate-500 mt-0.5">手動指定每位同學為第 1 或第 2 組（須各滿 18 人）</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- 批次貼上匯入區 -->
+        <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <label class="text-sm font-bold text-slate-700">2. 一鍵批次匯入姓名（可從 Excel / Google 試算表直接複製 36 列貼上）</label>
+            <button onclick="applyBatchPasteNames()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition">
+              套用貼上名單至下方表格
+            </button>
+          </div>
+          <textarea id="batchNamesTextarea" rows="3" placeholder="請貼上最多 36 行學生姓名（第 1 行對應 1 號，第 2 行對應 2 號...，自動忽略空白行或座號前綴）" class="w-full text-xs border border-slate-300 rounded-xl p-2.5 focus:outline-none focus:border-blue-500"></textarea>
+        </div>
+
+        <!-- 36 人個別編輯與組別微調網格 -->
+        <div>
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <label class="text-sm font-bold text-slate-700">3. 個別座號姓名與組別確認</label>
+            <div id="customGroupCounter" class="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+              第一組：18 人 ｜ 第二組：18 人
+            </div>
+          </div>
+          <div id="rosterGridContainer" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+            <!-- 由 JS 動態產生 1~36 號輸入框 -->
+          </div>
+        </div>
+      </div>
+
+      <!-- 彈窗底部按鈕 -->
+      <div class="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3">
+        <button onclick="closeRosterModal()" class="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-200 transition">
+          取消
+        </button>
+        <button onclick="saveRosterAndGroups()" class="px-5 py-2 rounded-xl text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm">
+          儲存名單與分組設定
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 彈窗 2：班級名稱修改 ==================== -->
+  <div id="classNameModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden items-center justify-center p-4 no-print">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-sm w-full p-6 space-y-4">
+      <h3 class="text-lg font-bold text-slate-800">設定班級名稱</h3>
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">班級名稱（將顯示於網頁標題與列印公告表）</label>
+        <input type="text" id="classNameInput" class="w-full text-sm border border-slate-300 rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-blue-500" placeholder="例如：高二忠班 或 805班" />
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button onclick="closeClassNameModal()" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">取消</button>
+        <button onclick="saveClassName()" class="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-700">確認儲存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 彈窗 3：自訂確認對話框 (取代 window.confirm) ==================== -->
+  <div id="customConfirmModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden items-center justify-center p-4 no-print">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full p-6 space-y-4">
+      <h3 id="confirmModalTitle" class="text-lg font-bold text-slate-800">確認操作</h3>
+      <p id="confirmModalMessage" class="text-sm text-slate-600 leading-relaxed">確定要執行此操作嗎？</p>
+      <div class="flex justify-end gap-2 pt-2">
+        <button onclick="closeConfirmModal()" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition">取消</button>
+        <button id="confirmModalActionBtn" class="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 transition">確認執行</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 浮動 Toast 訊息提示 ==================== -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none no-print"></div>
+
+  <!-- ==================== 核心應用程式邏輯 ==================== -->
+  <script>
+    /**
+     * 1. 工作項目與名額常數定義 (總計 4 + 4 + 2 + 2 + 4 + 2 = 18 人)
+     */
+    const TASK_DEFINITIONS = [
+      { id: 'sweep', name: '打掃', count: 4, badgeClass: 'bg-sky-100 text-sky-800 border-sky-200', rowAccent: 'bg-sky-50/40', icon: '🧹' },
+      { id: 'mop', name: '拖地', count: 4, badgeClass: 'bg-teal-100 text-teal-800 border-teal-200', rowAccent: 'bg-teal-50/40', icon: '🪣' },
+      { id: 'board', name: '黑板平台', count: 2, badgeClass: 'bg-indigo-100 text-indigo-800 border-indigo-200', rowAccent: 'bg-indigo-50/40', icon: '🧽' },
+      { id: 'trash', name: '倒垃圾', count: 2, badgeClass: 'bg-amber-100 text-amber-800 border-amber-200', rowAccent: 'bg-amber-50/40', icon: '🗑️' },
+      { id: 'recycle', name: '回收', count: 4, badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-200', rowAccent: 'bg-emerald-50/40', icon: '♻️' },
+      { id: 'duty', name: '值日生', count: 2, badgeClass: 'bg-rose-100 text-rose-800 border-rose-200', rowAccent: 'bg-rose-50/40', icon: '📋' },
+    ];
+
+    // 展開成 18 個工作槽位對應表
+    const TASK_SLOTS = [];
+    TASK_DEFINITIONS.forEach((task) => {
+      for (let i = 0; i < task.count; i++) {
+        TASK_SLOTS.push(task);
+      }
+    });
+
+    const DAYS_LABELS = ['週一', '週二', '週三', '週四', '週五'];
+    const TOTAL_WEEKS = 22;
+    const STORAGE_KEY = 'class_cleaning_system_v1';
+    const GH_CONFIG_KEY = 'class_cleaning_gh_config_v1';
+
+    // 預設 36 位同學示範名單
+    const DEFAULT_NAMES = [
+      '陳宇軒', '林品妍', '黃柏睿', '張語彤', '李承翰', '王宥蓁',
+      '吳宗翰', '劉子晴', '蔡定宇', '楊詠晴', '許峻瑋', '鄭羽希',
+      '謝秉宸', '郭芷若', '洪楷翔', '曾品希', '邱柏宇', '廖心瑜',
+      '徐子翔', '周宣妤', '葉冠宇', '蘇宥希', '莊凱文', '呂采潔',
+      '江奕辰', '何思穎', '蕭宇澤', '羅芸熙', '高梓軒', '潘語涵',
+      '簡廷翰', '朱庭萱', '鍾秉諺', '彭子芸', '游家豪', '詹舒涵'
+    ];
+
+    /**
+     * 2. 應用程式全域狀態
+     */
+    let appState = createDefaultState();
+    let currentWeek = 1;
+    let swapModeActive = false;
+    let firstSelectedSeatForSwap = null;
+    let pendingSharedState = null; // 暫存從網址 #state= 解析出來的資料
+
+    function createDefaultState() {
+      const students = [];
+      for (let i = 1; i <= 36; i++) {
+        students.push({
+          seat: i,
+          name: DEFAULT_NAMES[i - 1] || `學生${i}`,
+          customGroup: i <= 18 ? 1 : 2,
+        });
+      }
+      return {
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        className: '高二忠班',
+        semesterStart: getDefaultSemesterMonday(),
+        groupMode: 'A', // 'A': 1-18/19-36, 'B': 單雙號, 'C': 自訂
+        students,
+        weeks: {}, // 格式: { "1": { order?: number[], checks: { [seat]: boolean[5] }, notes: { [seat]: string } } }
+      };
+    }
+
+    /**
+     * 取得合理的預設開學週一日期（若今天在 8~12 月則設為當年 8 月最後一個週一；若在 2~6 月則設為當年 2 月中旬週一）
+     */
+    function getDefaultSemesterMonday() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
+      let baseDate;
+      if (month >= 8 || month === 1) {
+        const targetYear = month === 1 ? year - 1 : year;
+        baseDate = new Date(targetYear, 7, 31); // 8月31日
+      } else {
+        baseDate = new Date(year, 1, 16); // 2月16日
+      }
+      // 調整至該週的週一
+      const day = baseDate.getDay();
+      const diff = baseDate.getDate() - day + (day === 0 ? -6 : 1);
+      baseDate.setDate(diff);
+      return formatDateISO(baseDate);
+    }
+
+    function formatDateISO(dateObj) {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    /**
+     * 3. 初始化流程：依序檢查網址分享連結 -> 遠端 data.json -> 本機 LocalStorage
+     */
+    async function initApp() {
+      loadGithubConfigToInputs();
+
+      // 先從 LocalStorage 讀取本機狀態作為基底
+      const localRaw = localStorage.getItem(STORAGE_KEY);
+      if (localRaw) {
+        try {
+          const parsed = JSON.parse(localRaw);
+          if (parsed && Array.isArray(parsed.students) && parsed.students.length === 36) {
+            appState = { ...createDefaultState(), ...parsed };
+            updateDataSourceBadge('local', '本機自動暫存中');
+          }
+        } catch (e) {
+          console.warn('LocalStorage 解析失敗，使用預設狀態', e);
+        }
+      }
+
+      // 嘗試讀取同目錄下的 ./data.json (適用於 GitHub Pages 部署)
+      await tryFetchRemoteDataJson(false);
+
+      // 檢查網址是否有 #state=... 分享狀態
+      checkUrlHashState();
+
+      // 計算今天是第幾週並設定預設勾選星期
+      currentWeek = calculateCurrentWeekNumber();
+      setDefaultQuickCheckDay();
+
+      // 渲染介面
+      initWeekSelectorOptions();
+      renderAll();
+    }
+
+    /**
+     * 嘗試讀取同目錄下的 ./data.json
+     * @param {boolean} forceOverwrite 是否強制以遠端覆蓋本機資料
+     */
+    async function tryFetchRemoteDataJson(forceOverwrite = false) {
+      // 若為本機直接雙擊開啟 file:// 協定，略過 fetch 避免 CORS 錯誤
+      if (window.location.protocol === 'file:') {
+        return false;
+      }
+
+      try {
+        const response = await fetch(`./data.json?t=${Date.now()}`, { cache: 'no-store' });
+        if (!response.ok) return false;
+        const remoteData = await response.json();
+        if (remoteData && Array.isArray(remoteData.students) && remoteData.students.length === 36) {
+          const localTime = appState.updatedAt ? new Date(appState.updatedAt).getTime() : 0;
+          const remoteTime = remoteData.updatedAt ? new Date(remoteData.updatedAt).getTime() : 0;
+
+          if (forceOverwrite || !localStorage.getItem(STORAGE_KEY) || remoteTime >= localTime) {
+            appState = { ...createDefaultState(), ...remoteData };
+            saveStateToLocal(false); // 同步寫入本機但不更新時間戳
+            updateDataSourceBadge('github', '已同步 GitHub data.json');
+            if (forceOverwrite) {
+              showToast('已成功從遠端 data.json 重新載入最新資料！', 'success');
+              renderAll();
+            }
+            return true;
+          }
+        }
+      } catch (err) {
+        // Repo 尚未建立 data.json 時屬於正常情況，靜默處理
+      }
+      return false;
+    }
+
+    function reloadFromDataJson() {
+      tryFetchRemoteDataJson(true).then((ok) => {
+        if (!ok) {
+          showToast('目前找不到遠端 data.json 或已是最新狀態', 'info');
+        }
+      });
+    }
+
+    function updateDataSourceBadge(type, text) {
+      const badge = document.getElementById('dataSourceBadge');
+      if (!badge) return;
+      const dotColor = type === 'github' ? 'bg-indigo-500' : type === 'shared' ? 'bg-amber-500' : 'bg-emerald-500';
+      const textColor = type === 'github' ? 'text-indigo-600' : type === 'shared' ? 'text-amber-600' : 'text-emerald-600';
+      badge.className = `inline-flex items-center gap-1 font-medium ${textColor}`;
+      badge.innerHTML = `<span class="w-2 h-2 rounded-full ${dotColor}"></span>${text}`;
+    }
+
+    /**
+     * 4. 週次日期計算與公平輪替核心演算法
+     */
+    function calculateCurrentWeekNumber() {
+      if (!appState.semesterStart) return 1;
+      const start = new Date(appState.semesterStart + 'T00:00:00');
+      const now = new Date();
+      const diffMs = now.getTime() - start.getTime();
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      const week = Math.floor(diffDays / 7) + 1;
+      return Math.min(Math.max(week, 1), TOTAL_WEEKS);
+    }
+
+    function getWeekDateRange(weekNum) {
+      const start = new Date((appState.semesterStart || getDefaultSemesterMonday()) + 'T00:00:00');
+      const monday = new Date(start);
+      monday.setDate(start.getDate() + (weekNum - 1) * 7);
+      const friday = new Date(monday);
+      friday.setDate(monday.getDate() + 4);
+
+      const fmt = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+      return {
+        monday,
+        friday,
+        text: `${fmt(monday)} (一) ～ ${fmt(friday)} (五)`,
+        shortText: `${fmt(monday)}-${fmt(friday)}`,
+      };
+    }
+
+    /**
+     * 取得指定組別 (1 或 2) 的 18 位學生座號陣列
+     */
+    function getGroupSeats(groupNum) {
+      const mode = appState.groupMode || 'A';
+      let seats = [];
+      if (mode === 'A') {
+        seats = appState.students
+          .filter((s) => (groupNum === 1 ? s.seat <= 18 : s.seat >= 19))
+          .map((s) => s.seat);
+      } else if (mode === 'B') {
+        seats = appState.students
+          .filter((s) => (groupNum === 1 ? s.seat % 2 === 1 : s.seat % 2 === 0))
+          .map((s) => s.seat);
+      } else {
+        seats = appState.students
+          .filter((s) => s.customGroup === groupNum)
+          .map((s) => s.seat);
+      }
+      // 確保回傳嚴格 18 人（防呆處理）
+      if (seats.length !== 18) {
+        const fallback = appState.students.map((s) => s.seat);
+        return groupNum === 1 ? fallback.slice(0, 18) : fallback.slice(18, 36);
+      }
+      return seats;
+    }
+
+    /**
+     * 取得指定週次的 18 人工作分配順序（對應 TASK_SLOTS 0..17）
+     * 單數週 -> 第一組 (turn = 0, 1, 2...)
+     * 雙數週 -> 第二組 (turn = 0, 1, 2...)
+     * 每次輪到該組時，座號陣列依據 turn * 5 進行循環順移 (gcd(5, 18) = 1)，
+     * 確保每位同學整個學期會均勻輪流到所有 6 種工作項目！
+     */
+    function getWeekAssignedSeats(weekNum) {
+      const weekKey = String(weekNum);
+      const weekData = appState.weeks[weekKey];
+      if (weekData && Array.isArray(weekData.order) && weekData.order.length === 18) {
+        return weekData.order;
+      }
+
+      const isOddWeek = weekNum % 2 === 1;
+      const groupNum = isOddWeek ? 1 : 2;
+      const baseSeats = getGroupSeats(groupNum); // 長度 18
+
+      // 該組在本學期第幾次輪值 (0, 1, 2, ...)
+      const turnIndex = Math.floor((weekNum - 1) / 2);
+      const shiftStep = (turnIndex * 5) % 18;
+
+      const rotated = [];
+      for (let i = 0; i < 18; i++) {
+        rotated.push(baseSeats[(i + shiftStep) % 18]);
+      }
+      return rotated;
+    }
+
+    function ensureWeekDataObject(weekNum) {
+      const key = String(weekNum);
+      if (!appState.weeks[key]) {
+        appState.weeks[key] = {
+          checks: {},
+          notes: {},
+        };
+      }
+      if (!appState.weeks[key].checks) appState.weeks[key].checks = {};
+      if (!appState.weeks[key].notes) appState.weeks[key].notes = {};
+      return appState.weeks[key];
+    }
+
+    /**
+     * 5. 介面渲染主函式
+     */
+    function renderAll() {
+      // 更新班級名稱
+      document.getElementById('headerClassName').textContent = appState.className;
+
+      // 更新開學日期輸入框
+      document.getElementById('semesterStartInput').value = appState.semesterStart;
+
+      // 更新週次下拉選單與上下週按鈕
+      initWeekSelectorOptions();
+      document.getElementById('weekSelector').value = String(currentWeek);
+      document.getElementById('prevWeekBtn').disabled = currentWeek <= 1;
+      document.getElementById('nextWeekBtn').disabled = currentWeek >= TOTAL_WEEKS;
+
+      const dateInfo = getWeekDateRange(currentWeek);
+      document.getElementById('weekDateRangeText').textContent = dateInfo.text;
+
+      // 更新值勤組別卡片
+      const groupNum = currentWeek % 2 === 1 ? 1 : 2;
+      document.getElementById('activeGroupTitle').textContent = groupNum === 1 ? '第一組 (18人)' : '第二組 (18人)';
+
+      const modeNames = {
+        A: '模式 A：1–18 / 19–36',
+        B: '模式 B：單數號 / 雙數號',
+        C: '模式 C：自訂組別成員',
+      };
+      document.getElementById('groupModeBadge').textContent = modeNames[appState.groupMode] || modeNames.A;
+
+      // 檢查本週是否為自訂順序
+      const weekData = appState.weeks[String(currentWeek)];
+      const isCustomOrder = weekData && Array.isArray(weekData.order) && weekData.order.length === 18;
+      const rotBadge = document.getElementById('rotationStatusBadge');
+      const resetAutoBtn = document.getElementById('resetAutoBtn');
+
+      if (isCustomOrder) {
+        rotBadge.textContent = '已手動調整排班';
+        rotBadge.className = 'text-xs font-semibold px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200';
+        resetAutoBtn.classList.remove('hidden');
+      } else {
+        rotBadge.textContent = '自動公平輪替';
+        rotBadge.className = 'text-xs font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200';
+        resetAutoBtn.classList.add('hidden');
+      }
+
+      // 更新列印標題
+      document.getElementById('printTitle').textContent = `${appState.className} 第 ${currentWeek} 週掃地工作分配與檢核表`;
+      document.getElementById('printSubtitle').textContent = `值勤組別：${groupNum === 1 ? '第一組' : '第二組'}（共 18 人）｜ 日期區間：${dateInfo.text}`;
+
+      // 渲染登記表格與統計進度
+      renderCleaningTable();
+      updateProgressAndStats();
+    }
+
+    function initWeekSelectorOptions() {
+      const selector = document.getElementById('weekSelector');
+      selector.innerHTML = '';
+      for (let w = 1; w <= TOTAL_WEEKS; w++) {
+        const range = getWeekDateRange(w);
+        const grpLabel = w % 2 === 1 ? '第一組' : '第二組';
+        const opt = document.createElement('option');
+        opt.value = String(w);
+        opt.textContent = `第 ${w} 週（${grpLabel}・${range.shortText}）`;
+        selector.appendChild(opt);
+      }
+    }
+
+    /**
+     * 渲染 18 列掃地工作登記表
+     */
+    function renderCleaningTable() {
+      const tbody = document.getElementById('cleaningTableBody');
+      tbody.innerHTML = '';
+
+      const assignedSeats = getWeekAssignedSeats(currentWeek);
+      const weekData = ensureWeekDataObject(currentWeek);
+
+      // 判斷今天是否為本週的週一至週五，高亮表頭
+      const todayDayIdx = getTodayWeekdayIndexIfCurrentWeek();
+      for (let d = 0; d < 5; d++) {
+        const th = document.getElementById(`th-day-${d}`);
+        if (d === todayDayIdx) {
+          th.innerHTML = `<span class="inline-flex flex-col items-center text-blue-700"><span>${DAYS_LABELS[d]}</span><span class="text-[10px] font-semibold bg-blue-100 text-blue-700 px-1.5 rounded-full">今日</span></span>`;
+          th.classList.add('bg-blue-50/70');
+        } else {
+          th.textContent = DAYS_LABELS[d];
+          th.classList.remove('bg-blue-50/70');
+        }
+      }
+
+      // 建立座號對應學生姓名查詢表
+      const studentMap = new Map();
+      appState.students.forEach((s) => studentMap.set(s.seat, s.name));
+
+      // 逐一渲染 18 個工作槽位
+      assignedSeats.forEach((seat, slotIndex) => {
+        const task = TASK_SLOTS[slotIndex];
+        const studentName = studentMap.get(seat) || `學生${seat}`;
+        const checks = weekData.checks[seat] || [false, false, false, false, false];
+        const noteText = weekData.notes[seat] || '';
+
+        // 判斷是否為該工作項目的第一筆，顯示工作標籤與總人數
+        const isFirstOfTask = slotIndex === 0 || TASK_SLOTS[slotIndex - 1].id !== task.id;
+        const isSelectedForSwap = swapModeActive && firstSelectedSeatForSwap === seat;
+
+        const tr = document.createElement('tr');
+        tr.className = `transition-colors hover:bg-slate-50/90 ${isFirstOfTask && slotIndex !== 0 ? 'border-t-2 border-slate-200' : ''}`;
+
+        // 1. 工作項目欄
+        const tdTask = document.createElement('td');
+        tdTask.className = `py-3 px-4 align-middle ${task.rowAccent}`;
+        if (isFirstOfTask) {
+          tdTask.innerHTML = `
+            <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold ${task.badgeClass}">
+              <span>${task.icon}</span>
+              <span>${task.name}</span>
+              <span class="opacity-75">(${task.count}人)</span>
+            </div>
+          `;
+        } else {
+          tdTask.innerHTML = `
+            <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400">
+              <span class="opacity-40">↳</span>
+              <span>${task.name}</span>
+            </div>
+          `;
+        }
+        tr.appendChild(tdTask);
+
+        // 2. 座號與姓名欄 (支援互換工作點擊)
+        const tdStudent = document.createElement('td');
+        tdStudent.className = 'py-3 px-4 sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]';
+        const seatStr = String(seat).padStart(2, '0');
+
+        if (swapModeActive) {
+          tdStudent.innerHTML = `
+            <button onclick="handleSeatClickInSwapMode(${seat})" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl border text-left transition ${
+              isSelectedForSwap
+                ? 'bg-blue-600 text-white border-blue-600 font-bold shadow-sm'
+                : 'bg-blue-50/70 hover:bg-blue-100 text-slate-800 border-blue-300 swap-candidate'
+            }">
+              <span class="text-xs font-mono px-1.5 py-0.5 rounded ${isSelectedForSwap ? 'bg-white/20 text-white' : 'bg-white text-blue-700 font-bold'}">${seatStr}</span>
+              <span class="font-semibold truncate">${escapeHtml(studentName)}</span>
+            </button>
+          `;
+        } else {
+          tdStudent.innerHTML = `
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">${seatStr}</span>
+              <span class="font-semibold text-slate-800">${escapeHtml(studentName)}</span>
+            </div>
+          `;
+        }
+        tr.appendChild(tdStudent);
+
+        // 3~7. 週一至週五 Checkbox
+        for (let d = 0; d < 5; d++) {
+          const tdCheck = document.createElement('td');
+          tdCheck.className = `py-3 px-2 text-center ${d === todayDayIdx ? 'bg-blue-50/30' : ''}`;
+          const isChecked = Boolean(checks[d]);
+          tdCheck.innerHTML = `
+            <label class="inline-flex items-center justify-center p-1.5 cursor-pointer">
+              <input type="checkbox" class="duty-checkbox" ${isChecked ? 'checked' : ''} onchange="toggleCheck(${seat}, ${d}, this.checked)" aria-label="${seatStr}號 ${studentName} ${DAYS_LABELS[d]}掃地完成" />
+            </label>
+          `;
+          tr.appendChild(tdCheck);
+        }
+
+        // 8. 備註 / 代打欄位
+        const tdNote = document.createElement('td');
+        tdNote.className = 'py-2.5 px-4';
+        tdNote.innerHTML = `
+          <input type="text" value="${escapeHtml(noteText)}" onchange="updateNote(${seat}, this.value)" placeholder="備註 / 請假代打..." class="note-input w-full text-xs text-slate-700 bg-slate-50/80 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:bg-white focus:outline-none focus:border-blue-500 transition" />
+        `;
+        tr.appendChild(tdNote);
+
+        tbody.appendChild(tr);
+      });
+    }
+
+    /**
+     * 6. 互動登記與統計邏輯
+     */
+    function toggleCheck(seat, dayIndex, isChecked) {
+      const weekData = ensureWeekDataObject(currentWeek);
+      if (!Array.isArray(weekData.checks[seat])) {
+        weekData.checks[seat] = [false, false, false, false, false];
+      }
+      weekData.checks[seat][dayIndex] = isChecked;
+      saveStateToLocal(true);
+      updateProgressAndStats();
+    }
+
+    function updateNote(seat, noteValue) {
+      const weekData = ensureWeekDataObject(currentWeek);
+      const trimmed = noteValue.trim();
+      if (trimmed) {
+        weekData.notes[seat] = trimmed;
+      } else {
+        delete weekData.notes[seat];
+      }
+      saveStateToLocal(true);
+    }
+
+    function checkAllForSelectedDay() {
+      const dayIdx = parseInt(document.getElementById('quickCheckDaySelect').value, 10);
+      const assignedSeats = getWeekAssignedSeats(currentWeek);
+      const weekData = ensureWeekDataObject(currentWeek);
+
+      assignedSeats.forEach((seat) => {
+        if (!Array.isArray(weekData.checks[seat])) {
+          weekData.checks[seat] = [false, false, false, false, false];
+        }
+        weekData.checks[seat][dayIdx] = true;
+      });
+
+      saveStateToLocal(true);
+      renderCleaningTable();
+      updateProgressAndStats();
+      showToast(`已將第 ${currentWeek} 週「${DAYS_LABELS[dayIdx]}」全組 18 人勾選為完成！`, 'success');
+    }
+
+    function updateProgressAndStats() {
+      const assignedSeats = getWeekAssignedSeats(currentWeek);
+      const weekData = ensureWeekDataObject(currentWeek);
+
+      let totalChecked = 0;
+      const totalSlots = 18 * 5; // 90 人次
+
+      assignedSeats.forEach((seat) => {
+        const arr = weekData.checks[seat] || [];
+        for (let d = 0; d < 5; d++) {
+          if (arr[d]) totalChecked++;
+        }
+      });
+
+      const pct = Math.round((totalChecked / totalSlots) * 100);
+      document.getElementById('weeklyProgressText').textContent = `${pct}% (${totalChecked}/${totalSlots})`;
+      document.getElementById('weeklyProgressBar').style.width = `${pct}%`;
+
+      updateUncheckedReminder();
+    }
+
+    function updateUncheckedReminder() {
+      const dayIdx = parseInt(document.getElementById('quickCheckDaySelect').value, 10);
+      document.getElementById('activeDayLabel').textContent = `${DAYS_LABELS[dayIdx]} 尚未完成打勾：`;
+
+      const assignedSeats = getWeekAssignedSeats(currentWeek);
+      const weekData = ensureWeekDataObject(currentWeek);
+      const studentMap = new Map();
+      appState.students.forEach((s) => studentMap.set(s.seat, s.name));
+
+      const unchecked = [];
+      assignedSeats.forEach((seat) => {
+        const arr = weekData.checks[seat] || [];
+        if (!arr[dayIdx]) {
+          unchecked.push(`${seat}號 ${studentMap.get(seat) || ''}`);
+        }
+      });
+
+      const badge = document.getElementById('uncheckedCountBadge');
+      const listEl = document.getElementById('uncheckedNamesList');
+
+      if (unchecked.length === 0) {
+        badge.textContent = '全數完成 🎉';
+        badge.className = 'font-bold text-emerald-600';
+        listEl.textContent = `太棒了！${DAYS_LABELS[dayIdx]}全組 18 位同學皆已完成掃地驗收。`;
+      } else {
+        badge.textContent = `${unchecked.length} 人`;
+        badge.className = 'font-bold text-rose-600';
+        listEl.textContent = unchecked.join('、');
+      }
+    }
+
+    function getTodayWeekdayIndexIfCurrentWeek() {
+      const actualWeek = calculateCurrentWeekNumber();
+      if (actualWeek !== currentWeek) return -1;
+      const day = new Date().getDay(); // 0=Sun, 1=Mon..5=Fri, 6=Sat
+      return day >= 1 && day <= 5 ? day - 1 : -1;
+    }
+
+    function setDefaultQuickCheckDay() {
+      const day = new Date().getDay();
+      const idx = day >= 1 && day <= 5 ? day - 1 : 0;
+      document.getElementById('quickCheckDaySelect').value = String(idx);
+    }
+
+    /**
+     * 7. 週次切換、隨機抽籤與兩人工作互換
+     */
+    function changeWeek(delta) {
+      const target = currentWeek + delta;
+      if (target >= 1 && target <= TOTAL_WEEKS) {
+        currentWeek = target;
+        toggleSwapMode(false);
+        renderAll();
+      }
+    }
+
+    function selectWeek(val) {
+      currentWeek = parseInt(val, 10) || 1;
+      toggleSwapMode(false);
+      renderAll();
+    }
+
+    function jumpToCurrentWeek() {
+      currentWeek = calculateCurrentWeekNumber();
+      setDefaultQuickCheckDay();
+      toggleSwapMode(false);
+      renderAll();
+      showToast(`已切換至本週（第 ${currentWeek} 週）`, 'info');
+    }
+
+    function updateSemesterStart(newDateStr) {
+      if (!newDateStr) return;
+      appState.semesterStart = newDateStr;
+      saveStateToLocal(true);
+      currentWeek = calculateCurrentWeekNumber();
+      renderAll();
+      showToast('已更新開學第一週日期並重新計算週次', 'success');
+    }
+
+    function confirmShuffleWeek() {
+      openConfirmModal(
+        `隨機重排第 ${currentWeek} 週工作`,
+        `確定要將第 ${currentWeek} 週的 18 位值勤同學重新隨機分配工作項目嗎？（不影響其他週次，且隨時可恢復自動輪替）`,
+        () => {
+          const currentSeats = [...getWeekAssignedSeats(currentWeek)];
+          // Fisher-Yates 洗牌演算法
+          for (let i = currentSeats.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [currentSeats[i], currentSeats[j]] = [currentSeats[j], currentSeats[i]];
+          }
+          const weekData = ensureWeekDataObject(currentWeek);
+          weekData.order = currentSeats;
+          saveStateToLocal(true);
+          renderAll();
+          showToast(`已完成第 ${currentWeek} 週工作隨機抽籤重排！`, 'success');
+        }
+      );
+    }
+
+    function toggleSwapMode(forceState) {
+      swapModeActive = typeof forceState === 'boolean' ? forceState : !swapModeActive;
+      firstSelectedSeatForSwap = null;
+
+      const banner = document.getElementById('swapModeBanner');
+      const btn = document.getElementById('swapModeBtn');
+      const instruction = document.getElementById('swapInstructionText');
+
+      if (swapModeActive) {
+        banner.classList.remove('hidden');
+        btn.classList.add('ring-2', 'ring-blue-500', 'bg-blue-100');
+        instruction.textContent = '互換模式已開啟：請點選表格中「第一位」要交換工作的同學。';
+      } else {
+        banner.classList.add('hidden');
+        btn.classList.remove('ring-2', 'ring-blue-500', 'bg-blue-100');
+      }
+      renderCleaningTable();
+    }
+
+    function handleSeatClickInSwapMode(seat) {
+      if (!swapModeActive) return;
+
+      const student = appState.students.find((s) => s.seat === seat);
+      const label = student ? `${seat}號 ${student.name}` : `${seat}號`;
+
+      if (firstSelectedSeatForSwap === null) {
+        firstSelectedSeatForSwap = seat;
+        document.getElementById('swapInstructionText').textContent = `已選擇【${label}】，請點選「第二位」要交換工作的同學。`;
+        renderCleaningTable();
+      } else if (firstSelectedSeatForSwap === seat) {
+        // 取消選取同一位
+        firstSelectedSeatForSwap = null;
+        document.getElementById('swapInstructionText').textContent = '已取消選取，請重新點選「第一位」要交換工作的同學。';
+        renderCleaningTable();
+      } else {
+        // 執行互換
+        const currentSeats = [...getWeekAssignedSeats(currentWeek)];
+        const idxA = currentSeats.indexOf(firstSelectedSeatForSwap);
+        const idxB = currentSeats.indexOf(seat);
+
+        if (idxA !== -1 && idxB !== -1) {
+          [currentSeats[idxA], currentSeats[idxB]] = [currentSeats[idxB], currentSeats[idxA]];
+          const weekData = ensureWeekDataObject(currentWeek);
+          weekData.order = currentSeats;
+          saveStateToLocal(true);
+
+          const studentA = appState.students.find((s) => s.seat === firstSelectedSeatForSwap);
+          const labelA = studentA ? `${studentA.seat}號 ${studentA.name}` : `${firstSelectedSeatForSwap}號`;
+          showToast(`已成功將【${labelA}】與【${label}】的工作互換！`, 'success');
+        }
+
+        toggleSwapMode(false);
+        renderAll();
+      }
+    }
+
+    function resetWeekToAuto() {
+      const weekData = ensureWeekDataObject(currentWeek);
+      delete weekData.order;
+      saveStateToLocal(true);
+      renderAll();
+      showToast(`第 ${currentWeek} 週已恢復為系統自動公平輪替順序`, 'info');
+    }
+
+    /**
+     * 8. 名單與分組設定彈窗 (36人管理)
+     */
+    let tempRosterDraft = [];
+    let tempGroupModeDraft = 'A';
+
+    function openRosterModal() {
+      tempRosterDraft = appState.students.map((s) => ({ ...s }));
+      tempGroupModeDraft = appState.groupMode || 'A';
+
+      // 設定 Radio 狀態
+      document.querySelectorAll('input[name="groupModeRadio"]').forEach((r) => {
+        r.checked = r.value === tempGroupModeDraft;
+      });
+      document.getElementById('batchNamesTextarea').value = '';
+
+      renderRosterModalGrid();
+      const modal = document.getElementById('rosterModal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeRosterModal() {
+      const modal = document.getElementById('rosterModal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    function handleGroupModePreview(mode) {
+      tempGroupModeDraft = mode;
+      // 若切換到模式 A 或 B，同步更新預覽的組別顯示
+      if (mode === 'A') {
+        tempRosterDraft.forEach((s) => (s.customGroup = s.seat <= 18 ? 1 : 2));
+      } else if (mode === 'B') {
+        tempRosterDraft.forEach((s) => (s.customGroup = s.seat % 2 === 1 ? 1 : 2));
+      }
+      renderRosterModalGrid();
+    }
+
+    function renderRosterModalGrid() {
+      const container = document.getElementById('rosterGridContainer');
+      container.innerHTML = '';
+
+      let g1Count = 0;
+      let g2Count = 0;
+
+      tempRosterDraft.forEach((student, idx) => {
+        const grp =
+          tempGroupModeDraft === 'A'
+            ? student.seat <= 18 ? 1 : 2
+            : tempGroupModeDraft === 'B'
+            ? student.seat % 2 === 1 ? 1 : 2
+            : student.customGroup;
+
+        if (grp === 1) g1Count++;
+        else g2Count++;
+
+        const row = document.createElement('div');
+        row.className = 'flex items-center gap-2 p-2 rounded-xl border border-slate-200 bg-white';
+
+        const seatBadge = `<span class="text-xs font-mono font-bold w-7 h-7 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">${String(student.seat).padStart(2, '0')}</span>`;
+
+        const nameInput = `<input type="text" value="${escapeHtml(student.name)}" onchange="updateTempStudentName(${idx}, this.value)" class="flex-1 min-w-0 text-sm font-medium text-slate-800 border-b border-transparent focus:border-blue-500 focus:outline-none px-1 py-0.5" placeholder="輸入姓名" />`;
+
+        let groupBtnHtml = '';
+        if (tempGroupModeDraft === 'C') {
+          groupBtnHtml = `
+            <button type="button" onclick="toggleTempStudentCustomGroup(${idx})" class="px-2 py-1 rounded-lg text-xs font-bold shrink-0 transition ${
+              grp === 1 ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+            }">
+              第${grp}組
+            </button>
+          `;
+        } else {
+          groupBtnHtml = `
+            <span class="px-2 py-1 rounded-lg text-xs font-semibold shrink-0 ${
+              grp === 1 ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'
+            }">
+              第${grp}組
+            </span>
+          `;
+        }
+
+        row.innerHTML = seatBadge + nameInput + groupBtnHtml;
+        container.appendChild(row);
+      });
+
+      const counterEl = document.getElementById('customGroupCounter');
+      if (g1Count === 18 && g2Count === 18) {
+        counterEl.textContent = `第一組：${g1Count} 人 ｜ 第二組：${g2Count} 人（人數正確）`;
+        counterEl.className = 'text-xs font-semibold px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200';
+      } else {
+        counterEl.textContent = `⚠️ 第一組：${g1Count} 人 ｜ 第二組：${g2Count} 人（須各滿 18 人）`;
+        counterEl.className = 'text-xs font-semibold px-3 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200';
+      }
+    }
+
+    function updateTempStudentName(idx, val) {
+      tempRosterDraft[idx].name = val.trim() || `學生${tempRosterDraft[idx].seat}`;
+    }
+
+    function toggleTempStudentCustomGroup(idx) {
+      tempRosterDraft[idx].customGroup = tempRosterDraft[idx].customGroup === 1 ? 2 : 1;
+      renderRosterModalGrid();
+    }
+
+    function applyBatchPasteNames() {
+      const raw = document.getElementById('batchNamesTextarea').value;
+      const lines = raw
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+
+      if (lines.length === 0) {
+        showToast('請先在文字框內貼上學生姓名！', 'error');
+        return;
+      }
+
+      let updatedCount = 0;
+      for (let i = 0; i < Math.min(lines.length, 36); i++) {
+        // 自動過濾開頭可能附帶的座號與空白/點號 (例如 "1. 王小明" 或 "01 王小明")
+        const cleaned = lines[i].replace(/^\d+[\s.、．\t-]+/, '').trim();
+        if (cleaned) {
+          tempRosterDraft[i].name = cleaned;
+          updatedCount++;
+        }
+      }
+
+      renderRosterModalGrid();
+      showToast(`已成功匯入 ${updatedCount} 位同學姓名，請確認後點擊「儲存」`, 'success');
+    }
+
+    function saveRosterAndGroups() {
+      if (tempGroupModeDraft === 'C') {
+        const g1 = tempRosterDraft.filter((s) => s.customGroup === 1).length;
+        const g2 = tempRosterDraft.filter((s) => s.customGroup === 2).length;
+        if (g1 !== 18 || g2 !== 18) {
+          showToast(`自訂分組模式下，第一組與第二組必須各為 18 人（目前為 ${g1} / ${g2} 人）`, 'error');
+          return;
+        }
+      }
+
+      appState.students = tempRosterDraft.map((s) => ({ ...s }));
+      appState.groupMode = tempGroupModeDraft;
+      saveStateToLocal(true);
+      closeRosterModal();
+      renderAll();
+      showToast('已儲存班級名單與分組設定！', 'success');
+    }
+
+    /**
+     * 9. 班級名稱修改彈窗
+     */
+    function openClassNameModal() {
+      document.getElementById('classNameInput').value = appState.className;
+      const modal = document.getElementById('classNameModal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeClassNameModal() {
+      const modal = document.getElementById('classNameModal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    function saveClassName() {
+      const val = document.getElementById('classNameInput').value.trim();
+      if (!val) {
+        showToast('班級名稱不可為空白', 'error');
+        return;
+      }
+      appState.className = val;
+      saveStateToLocal(true);
+      closeClassNameModal();
+      renderAll();
+      showToast('已更新班級名稱', 'success');
+    }
+
+    /**
+     * 10. GitHub 同步、匯出 data.json、分享連結與 CSV 報表
+     */
+    function saveStateToLocal(updateTimestamp = true) {
+      if (updateTimestamp) {
+        appState.updatedAt = new Date().toISOString();
+      }
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+        updateDataSourceBadge('local', '本機已自動儲存');
+      } catch (e) {
+        console.error('LocalStorage 寫入失敗', e);
+      }
+    }
+
+    function scrollToSyncSection() {
+      document.getElementById('syncSection').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    /**
+     * 下載 data.json 檔案
+     */
+    function downloadDataJson() {
+      const jsonStr = JSON.stringify(appState, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+      triggerFileDownload(blob, 'data.json');
+      showToast('已下載 data.json！可直接上傳至 GitHub Repository 同步全班資料', 'success');
+    }
+
+    /**
+     * 匯入本地 data.json 備份
+     */
+    function importDataJsonFile(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const imported = JSON.parse(e.target.result);
+          if (!imported || !Array.isArray(imported.students) || imported.students.length !== 36) {
+            throw new Error('格式不符：缺少完整的 36 人名單資料');
+          }
+          appState = { ...createDefaultState(), ...imported };
+          saveStateToLocal(true);
+          renderAll();
+          showToast('已成功匯入並還原 JSON 資料！', 'success');
+        } catch (err) {
+          showToast(`匯入失敗：${err.message}`, 'error');
+        } finally {
+          event.target.value = '';
+        }
+      };
+      reader.readAsText(file, 'utf-8');
+    }
+
+    /**
+     * 匯出本週 CSV 報表 (含 UTF-8 BOM，確保 Excel 開啟中文不亂碼)
+     */
+    function exportWeeklyCsv() {
+      const assignedSeats = getWeekAssignedSeats(currentWeek);
+      const weekData = ensureWeekDataObject(currentWeek);
+      const dateRange = getWeekDateRange(currentWeek);
+      const studentMap = new Map();
+      appState.students.forEach((s) => studentMap.set(s.seat, s.name));
+
+      const rows = [
+        ['班級', '週次', '日期區間', '工作項目', '座號', '姓名', '週一', '週二', '週三', '週四', '週五', '本週完成次數', '備註/代打'],
+      ];
+
+      assignedSeats.forEach((seat, idx) => {
+        const task = TASK_SLOTS[idx];
+        const name = studentMap.get(seat) || `學生${seat}`;
+        const checks = weekData.checks[seat] || [false, false, false, false, false];
+        const note = weekData.notes[seat] || '';
+        const count = checks.filter(Boolean).length;
+
+        rows.push([
+          appState.className,
+          `第${currentWeek}週`,
+          dateRange.shortText,
+          task.name,
+          seat,
+          name,
+          checks[0] ? 'V' : '',
+          checks[1] ? 'V' : '',
+          checks[2] ? 'V' : '',
+          checks[3] ? 'V' : '',
+          checks[4] ? 'V' : '',
+          `${count}/5`,
+          note,
+        ]);
+      });
+
+      const csvContent =
+        '\uFEFF' +
+        rows
+          .map((row) =>
+            row
+              .map((cell) => {
+                const str = String(cell ?? '').replace(/"/g, '""');
+                return `"${str}"`;
+              })
+              .join(',')
+          )
+          .join('\r\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      triggerFileDownload(blob, `${appState.className}_第${currentWeek}週掃地登記表.csv`);
+      showToast(`已匯出第 ${currentWeek} 週 CSV 報表！`, 'success');
+    }
+
+    function triggerFileDownload(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    /**
+     * 產生並複製狀態分享連結 (#state=...)
+     * 將班級設定、名單與當週登記狀態精簡壓縮為 Base64URL 寫入網址 Hash
+     */
+    function copyShareLink() {
+      const weekData = ensureWeekDataObject(currentWeek);
+      // 將週一~週五布林陣列壓縮成 0~31 的位元遮罩整數，大幅縮短網址長度
+      const compactChecks = {};
+      Object.keys(weekData.checks).forEach((seatKey) => {
+        const arr = weekData.checks[seatKey] || [];
+        let mask = 0;
+        for (let d = 0; d < 5; d++) {
+          if (arr[d]) mask |= 1 << d;
+        }
+        if (mask > 0) compactChecks[seatKey] = mask;
+      });
+
+      const compactPayload = {
+        c: appState.className,
+        s: appState.semesterStart,
+        g: appState.groupMode,
+        n: appState.students.map((st) => st.name),
+        cg: appState.groupMode === 'C' ? appState.students.map((st) => st.customGroup) : undefined,
+        w: currentWeek,
+        wd: {
+          o: weekData.order || undefined,
+          k: compactChecks,
+          m: weekData.notes || {},
+        },
+      };
+
+      try {
+        const jsonStr = JSON.stringify(compactPayload);
+        const encoded = utf8ToBase64Url(jsonStr);
+        const baseUrl = window.location.href.split('#')[0];
+        const shareUrl = `${baseUrl}#state=${encoded}`;
+
+        copyTextToClipboard(shareUrl);
+        showToast(`已複製第 ${currentWeek} 週狀態分享連結！可直接貼到班群分享`, 'success');
+      } catch (err) {
+        showToast('產生分享連結失敗：' + err.message, 'error');
+      }
+    }
+
+    function checkUrlHashState() {
+      const hash = window.location.hash;
+      if (!hash || !hash.startsWith('#state=')) return;
+
+      try {
+        const encoded = hash.slice(7);
+        const jsonStr = base64UrlToUtf8(encoded);
+        const payload = JSON.parse(jsonStr);
+
+        if (payload && Array.isArray(payload.n) && payload.n.length === 36) {
+          const restored = createDefaultState();
+          restored.className = payload.c || restored.className;
+          restored.semesterStart = payload.s || restored.semesterStart;
+          restored.groupMode = payload.g || 'A';
+
+          restored.students = payload.n.map((name, idx) => ({
+            seat: idx + 1,
+            name: name || `學生${idx + 1}`,
+            customGroup: Array.isArray(payload.cg) ? payload.cg[idx] || 1 : idx < 18 ? 1 : 2,
+          }));
+
+          const targetWeek = parseInt(payload.w, 10) || 1;
+          const restoredChecks = {};
+          if (payload.wd && payload.wd.k) {
+            Object.keys(payload.wd.k).forEach((seatKey) => {
+              const mask = payload.wd.k[seatKey];
+              restoredChecks[seatKey] = [
+                Boolean(mask & 1),
+                Boolean(mask & 2),
+                Boolean(mask & 4),
+                Boolean(mask & 8),
+                Boolean(mask & 16),
+              ];
+            });
+          }
+
+          restored.weeks[String(targetWeek)] = {
+            order: payload.wd && Array.isArray(payload.wd.o) ? payload.wd.o : undefined,
+            checks: restoredChecks,
+            notes: (payload.wd && payload.wd.m) || {},
+          };
+
+          pendingSharedState = { state: restored, week: targetWeek };
+          appState = restored;
+          currentWeek = targetWeek;
+
+          document.getElementById('sharedLinkBanner').classList.remove('hidden');
+          updateDataSourceBadge('shared', '檢視分享連結狀態');
+        }
+      } catch (e) {
+        console.warn('無法解析網址分享狀態', e);
+      }
+    }
+
+    function applySharedStateToLocal() {
+      if (!pendingSharedState) return;
+      saveStateToLocal(true);
+      pendingSharedState = null;
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      document.getElementById('sharedLinkBanner').classList.add('hidden');
+      showToast('已將分享連結的資料覆蓋並儲存至您的瀏覽器！', 'success');
+    }
+
+    function dismissSharedState() {
+      pendingSharedState = null;
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      document.getElementById('sharedLinkBanner').classList.add('hidden');
+      window.location.reload();
+    }
+
+    /**
+     * 11. GitHub REST API 直接雲端推送 (選配功能)
+     */
+    function toggleGithubApiPanel() {
+      const panel = document.getElementById('githubApiPanel');
+      const chevron = document.getElementById('ghPanelChevron');
+      const isHidden = panel.classList.contains('hidden');
+      if (isHidden) {
+        panel.classList.remove('hidden');
+        chevron.classList.add('rotate-180');
+      } else {
+        panel.classList.add('hidden');
+        chevron.classList.remove('rotate-180');
+      }
+    }
+
+    function loadGithubConfigToInputs() {
+      try {
+        const raw = localStorage.getItem(GH_CONFIG_KEY);
+        if (!raw) return;
+        const cfg = JSON.parse(raw);
+        if (cfg.repo) document.getElementById('ghRepoInput').value = cfg.repo;
+        if (cfg.branch) document.getElementById('ghBranchInput').value = cfg.branch;
+        if (cfg.path) document.getElementById('ghPathInput').value = cfg.path;
+        if (cfg.token) document.getElementById('ghTokenInput').value = cfg.token;
+      } catch (e) {
+        // 忽略
+      }
+    }
+
+    function getGithubConfigFromInputs() {
+      return {
+        repo: document.getElementById('ghRepoInput').value.trim(),
+        branch: document.getElementById('ghBranchInput').value.trim() || 'main',
+        path: document.getElementById('ghPathInput').value.trim() || 'data.json',
+        token: document.getElementById('ghTokenInput').value.trim(),
+      };
+    }
+
+    function saveGithubConfigOnly() {
+      const cfg = getGithubConfigFromInputs();
+      localStorage.setItem(GH_CONFIG_KEY, JSON.stringify(cfg));
+      showToast('GitHub 連線設定已安全儲存於本機瀏覽器', 'success');
+    }
+
+    async function pushToGithubApi() {
+      const cfg = getGithubConfigFromInputs();
+      if (!cfg.repo || !cfg.repo.includes('/')) {
+        showToast('請輸入正確的 GitHub 倉庫格式，例如：username/repo-name', 'error');
+        return;
+      }
+      if (!cfg.token) {
+        showToast('請輸入 GitHub Personal Access Token', 'error');
+        return;
+      }
+
+      localStorage.setItem(GH_CONFIG_KEY, JSON.stringify(cfg));
+      saveStateToLocal(true);
+
+      const pushBtn = document.getElementById('ghPushBtn');
+      const originalBtnHtml = pushBtn.innerHTML;
+      pushBtn.disabled = true;
+      pushBtn.innerHTML = '<span>⏳ 正在推送至 GitHub...</span>';
+
+      const apiUrl = `https://api.github.com/repos/${cfg.repo}/contents/${cfg.path}`;
+      const headers = {
+        Authorization: `Bearer ${cfg.token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        // 步驟 1：查詢現有檔案以取得 sha (若檔案尚不存在則回傳 404，屬於正常首次建立)
+        let currentSha = null;
+        const getRes = await fetch(`${apiUrl}?ref=${encodeURIComponent(cfg.branch)}`, {
+          method: 'GET',
+          headers,
+        });
+
+        if (getRes.ok) {
+          const fileInfo = await getRes.json();
+          currentSha = fileInfo.sha;
+        } else if (getRes.status !== 404) {
+          const errData = await getRes.json().catch(() => ({}));
+          throw new Error(errData.message || `讀取倉庫失敗 (HTTP ${getRes.status})`);
+        }
+
+        // 步驟 2：將最新 appState 轉為 UTF-8 Base64 並 PUT 至 GitHub
+        const jsonContent = JSON.stringify(appState, null, 2);
+        const base64Content = utf8ToBase64(jsonContent);
+
+        const putBody = {
+          message: `chore: 更新${appState.className}第 ${currentWeek} 週掃地登記紀錄`,
+          content: base64Content,
+          branch: cfg.branch,
+        };
+        if (currentSha) {
+          putBody.sha = currentSha;
+        }
+
+        const putRes = await fetch(apiUrl, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify(putBody),
+        });
+
+        if (!putRes.ok) {
+          const errData = await putRes.json().catch(() => ({}));
+          throw new Error(errData.message || `推送失敗 (HTTP ${putRes.status})`);
+        }
+
+        updateDataSourceBadge('github', '已同步推送至 GitHub');
+        showToast('🎉 成功推送更新至 GitHub Repository！稍待數十秒 GitHub Pages 即會同步更新。', 'success');
+      } catch (err) {
+        showToast(`GitHub 同步失敗：${err.message}`, 'error');
+      } finally {
+        pushBtn.disabled = false;
+        pushBtn.innerHTML = originalBtnHtml;
+      }
+    }
+
+    /**
+     * 12. 通用工具函式 (UTF-8 Base64、剪貼簿、自訂確認視窗、Toast 通知)
+     */
+    function utf8ToBase64(str) {
+      const bytes = new TextEncoder().encode(str);
+      let bin = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+        bin += String.fromCharCode(bytes[i]);
+      }
+      return btoa(bin);
+    }
+
+    function utf8ToBase64Url(str) {
+      return utf8ToBase64(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    function base64UrlToUtf8(b64url) {
+      let b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4) b64 += '=';
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) {
+        bytes[i] = bin.charCodeAt(i);
+      }
+      return new TextDecoder().decode(bytes);
+    }
+
+    function copyTextToClipboard(text) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
+      } catch (err) {
+        console.error('複製失敗', err);
+      }
+      document.body.removeChild(textarea);
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function openConfirmModal(title, message, onConfirm) {
+      document.getElementById('confirmModalTitle').textContent = title;
+      document.getElementById('confirmModalMessage').textContent = message;
+      const actionBtn = document.getElementById('confirmModalActionBtn');
+      actionBtn.onclick = () => {
+        closeConfirmModal();
+        onConfirm();
+      };
+      const modal = document.getElementById('customConfirmModal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeConfirmModal() {
+      const modal = document.getElementById('customConfirmModal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+
+      const styles = {
+        success: 'bg-emerald-600 text-white border-emerald-700',
+        error: 'bg-rose-600 text-white border-rose-700',
+        info: 'bg-slate-800 text-white border-slate-900',
+      };
+
+      const icons = {
+        success: '✅',
+        error: '⚠️',
+        info: '💡',
+      };
+
+      toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg border text-xs sm:text-sm font-medium transform transition-all duration-300 translate-y-2 opacity-0 ${
+        styles[type] || styles.info
+      }`;
+      toast.innerHTML = `<span>${icons[type] || '💡'}</span><span>${escapeHtml(message)}</span>`;
+
+      container.appendChild(toast);
+      requestAnimationFrame(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      });
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => {
+          if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, 300);
+      }, 3600);
+    }
+
+    // 啟動應用程式
+    window.addEventListener('DOMContentLoaded', initApp);
+  </script>
+</body>
+</html>
